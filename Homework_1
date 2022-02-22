@@ -1,0 +1,90 @@
+library(dplyr)
+library(MASS)
+library(glmnet)
+library(mgcv)
+library(earth)
+library(vip)
+claim_data <- read.csv(file = 'claimdata.csv')
+
+### Transformations
+
+data <- claim_data %>% 
+  filter(Code1==c(1,2,7)) %>% 
+  mutate(code2=ifelse(Code1 == 2, 1, 0),
+         code7=ifelse(Code1==7,1,0)) %>% 
+  select(-Code1)
+  
+log_cols<-c("CLAIM","DED","GRT","DWT","VALUE")
+data[log_cols] <- log(data[log_cols])
+data["AGE"]<-log(data["AGE"]+1)
+
+### Linear regression
+linearMod <- lm(CLAIM~DED+AGE+GRT+DWT+VALUE+HP+code2+code7,data=data)  # build linear regression model on full data
+summary(linearMod)
+
+#Only intercept, VALUE, and HP are significant. Very low R^squared. 
+
+### stepAIC
+aic<-stepAIC(linearMod)
+aic
+summary(aic)
+#This stepwise AIC uses backwise selection to select everything but VALUE and HP as features.  
+AIC(linearMod)
+AIC(aic) #this model has a lower aic than the full model and is thus preferred. 
+x<-data %>% 
+  select(-CLAIM) %>% 
+  as.matrix()
+y<-data %>% 
+  select(CLAIM) %>% 
+  as.matrix()
+  
+# Note alpha=1 for lasso only and alpha=0 ridge only.
+lasso <- glmnet(x, y, alpha=1)
+ridge <- glmnet(x, y, alpha=0)
+# Plot variable coefficients vs. shrinkage parameter lambda.
+plot(lasso, xvar="lambda")
+plot(ridge,xvar="lambda")
+
+
+#GAM model
+gamMod<-gam(CLAIM~DED+AGE+GRT+DWT+VALUE+HP+code2+code7,data=data)
+summary(gamMod)
+gam.check(gamMod)
+plot.gam(gamMod,all.terms = TRUE)
+
+ #MARS model
+marsMod<-earth(CLAIM~DED+AGE+GRT+DWT+VALUE+HP+code2+code7,data=data)
+plotmo(marsMod)
+summary(marsMod, digits = 2, style = "pmax")
+
+#variable importance plots
+vip(marsMod)
+vip(aic)
+vip(linearMod)
+
+#predict claim sizes
+prediction_data <- claim_data %>% 
+  slice(c(100,200,300)) %>% 
+  mutate(code2=ifelse(Code1 == 2, 1, 0),
+         code7=ifelse(Code1==7,1,0)) %>% 
+  select(-c(Code1,CLAIM))
+
+new_log_cols<-c("DED","GRT","DWT","VALUE")
+prediction_data[new_log_cols] <- log(prediction_data[new_log_cols])
+prediction_data["AGE"]<-log(prediction_data["AGE"]+1)
+
+observations<-claim_data %>% 
+  slice(c(100,200,300)) %>% 
+  transmute(CLAIM=log(CLAIM))
+
+linear_pred<-predict.lm(linearMod,prediction_data)
+aic_pred<-predict(aic, prediction_data)
+#ridge_pred<-predict(ridge,as.matrix(prediction_data))
+#lasso_pred<-predict.glmnet(lasso,as.matrix(prediction_data))
+gam_pred<-predict.gam(gamMod,prediction_data)
+mars_pred<-predict(marsMod, prediction_data)
+
+result_df<-data.frame(cbind(linear_pred,aic_pred,gam_pred,mars_pred,observations))
+names(result_df)[names(result_df) == 'CLAIM'] <- 'mars_pred'
+names(result_df)[names(result_df) == 'CLAIM.1'] <- 'observed'
+result_df
