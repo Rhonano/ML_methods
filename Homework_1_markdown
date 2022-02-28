@@ -1,0 +1,76 @@
+---
+title: "Mandatory assignment 1"
+output: html_document
+---
+
+
+
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(MASS)
+library(glmnet)
+library(mgcv)
+library(earth)
+library(vip)
+library(tidyverse)
+claim_data <- read.csv(file = 'claimdata.csv')
+data <- claim_data %>% 
+  filter(Code1==c(1,2,7)) %>% 
+  mutate(code2=ifelse(Code1 == 2, 1, 0),
+         code7=ifelse(Code1==7,1,0)) %>% 
+  dplyr::select(-Code1)
+
+log_cols<-c("CLAIM","DED","GRT","DWT","VALUE")
+data[log_cols] <- log(data[log_cols])
+data["AGE"]<-log(data["AGE"]+1)
+```
+
+## Linear model
+
+```{r lin, echo=FALSE}
+linearMod <- lm(CLAIM~DED+AGE+GRT+DWT+VALUE+HP+code2+code7,data=data)  # build linear regression model on full data
+summary(linearMod)$coefficients
+```
+
+## AIC
+
+```{r stepaic, include=FALSE}
+aic<-stepAIC(linearMod)
+```
+
+```{r aic_sum, echo=FALSE}
+summary(aic)
+```
+
+```{r aic_compare, echo=FALSE}
+AIC(linearMod)
+AIC(aic) #this model has a lower aic than the full model and is thus preferred. 
+```
+
+```{r matrix, include=FALSE}
+x<-data %>% 
+  dplyr::select(-CLAIM) %>% 
+  as.matrix()
+y<-data %>% 
+  dplyr::select(CLAIM) %>% 
+  as.matrix()
+```
+
+```{r glmnet_plots, echo=FALSE}
+# Note alpha=1 for lasso only and alpha=0 ridge only.
+lasso <- glmnet(x, y, alpha=1)
+ridge <- glmnet(x, y, alpha=0)
+# Plot variable coefficients vs. shrinkage parameter lambda.
+plot(lasso, xvar="lambda", main="lasso regression")
+plot(ridge, xvar="lambda", main="ridge regression")
+```
+
+```{r gam_plot, echo=FALSE}
+gamMod<-gam(CLAIM~DED+AGE+GRT+DWT+VALUE+HP+code2+code7,data=data)
+summary(gamMod)
+gam.check(gamMod)
+plot.gam(gamMod,all.terms = TRUE)
+```
+
+
