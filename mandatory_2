@@ -1,0 +1,22 @@
+library(tidyverse)
+require(tidyr)
+require(dplyr)
+
+library(nnet)
+claim_data <- read.csv(file = 'claimdata.csv')
+
+
+data <- claim_data %>% 
+  mutate(code2=ifelse(Code1 == 2, 1, 0),
+         code3=ifelse(Code1 == 3, 1, 0),
+         code4=ifelse(Code1 == 4, 1, 0),
+         code5=ifelse(Code1 == 5, 1, 0),
+         code6=ifelse(Code1 == 6, 1, 0),
+         code7=ifelse(Code1 == 7, 1, 0),
+         code8=ifelse(Code1 == 8, 1, 0)) %>% 
+  dplyr::select(-Code1)
+
+log_cols<-c("CLAIM","HP","DED","GRT","DWT","VALUE")
+data[log_cols] <- log(data[log_cols])
+data["AGE"]<-log(data["AGE"]+1)
+data
