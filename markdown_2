@@ -1,0 +1,117 @@
+---
+title: "mandatory_2"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(keras)
+library(nnet)
+library(reticulate)
+use_condaenv('r-reticulate')
+library(tensorflow)
+set.seed(20)
+```
+
+```{r include=FALSE}
+claim_data <- read.csv(file = 'claimdata.csv')
+
+
+data <- claim_data %>% 
+  mutate(code2=ifelse(Code1 == 2, 1, 0),
+         code3=ifelse(Code1 == 3, 1, 0),
+         code4=ifelse(Code1 == 4, 1, 0),
+         code5=ifelse(Code1 == 5, 1, 0),
+         code6=ifelse(Code1 == 6, 1, 0),
+         code7=ifelse(Code1 == 7, 1, 0),
+         code8=ifelse(Code1 == 8, 1, 0)) %>% 
+  dplyr::select(-Code1)
+
+log_cols<-c("CLAIM","HP","DED","GRT","DWT","VALUE")
+data[log_cols] <- log(data[log_cols])
+data["AGE"]<-log(data["AGE"]+1)
+training_data <- data %>% 
+  slice(-c(100,300,500,700,900,1100,1300,1500,1700,1900,2100))
+  
+test_data <- data %>% 
+  slice(c(100,300,500,700,900,1100,1300,1500,1700,1900,2100))
+
+training_x <- data %>% 
+  select(-CLAIM) %>% 
+  slice(-c(100,300,500,700,900,1100,1300,1500,1700,1900,2100))
+training_y <- data %>% 
+  select(CLAIM) %>% 
+  slice(-c(100,300,500,700,900,1100,1300,1500,1700,1900,2100))
+testing_x <- test_data %>% 
+  select(-CLAIM)
+testing_y <- test_data %>% 
+  select(CLAIM)
+```
+
+
+# Keras
+For the first keras model we choose one layer with 16 (arbitrarily chosen) neurons. We use the ReLu (Rectified Linear Unit) activation function. The advantage with this function is that it does not suffer from the vanishing gradient problem and so it might converge better than other functions. Furthermore, we have 13 inputs and one output. For both keras models we pick the adam (adaptive moment estimation) optimizer. It is an alternative to classical stochastic gradient descent that calculates an exponential moving average of the gradient and the squared gradient.The loss function is chosen to be the mean squared error and the loss from both training and validation (20% holdout from training data) data are plotted in figure below. 
+
+As expected the loss from the training data is decreasing steadily each time the data passes through the learning algorithm. The validation loss increases a bit around the middle and decreases in the end. The goal is to not overfit and have the lowest possible validation error. The figure indicates that we might get better prediction results by increasing the epochs. 
+```{r, echo=FALSE}
+model_1 <- keras_model_sequential() %>% 
+  layer_dense(units = 16, activation = "relu",input_shape = length(training_x)) %>%
+  layer_dense(1) #output shape of one unit with linear activation
+
+summary(model_1)
+```
+```{r include=FALSE}
+model_1 %>% 
+  compile(
+    optimizer= "adam",
+    loss='mse')
+```
+
+```{r, echo=FALSE}
+history_1 <- model_1 %>% 
+  keras::fit(
+    x = training_x %>% as.matrix(),
+    y = training_y %>% as.matrix(),
+    epochs=75,
+    validation_split=0.2)
+
+plot(history_1)
+```
+
+The second keras model uses three layers with 64, 32 and 16 neurons respectively as well as a dropout layer between the first and second layer. The dropout layer 
+```{r, echo=FALSE}
+model_3 <- keras_model_sequential() %>% 
+  layer_flatten(input_shape = length(training_x)) %>% #vector of 104 predictors
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dropout(0.2) %>%  #to avoid overfitting drops irrelevant obs.
+  layer_dense(units = 16, 
+              activation = "relu", 
+              kernel_regularizer = regularizer_l2(l = 0.001)) %>% #regularizer helps with overfitting issues
+  layer_dense(units = 32, 
+              activation = "relu", 
+              kernel_regularizer = regularizer_l2(l = 0.0001)) %>%
+  layer_dense(1) #output shape of one unit with linear activation
+
+summary(model_3)
+```
+```{r include=FALSE}
+model_3 %>% 
+  compile(
+    optimizer= "adam",
+    loss='mse',
+    metrics='mean_absolute_error')
+```
+
+```{r, echo=FALSE}
+history <- model_3 %>% 
+  keras::fit(
+    x = training_x %>% as.matrix(),
+    y = training_y %>% as.matrix(),
+    epochs=75,
+    validation_split=0.2)
+
+plot(history)
+```
+
