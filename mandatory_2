@@ -1,8 +1,12 @@
 library(tidyverse)
-require(tidyr)
-require(dplyr)
-
+library(tidyr)
+library(dplyr)
+library(keras)
 library(nnet)
+library(reticulate)
+use_condaenv('r-reticulate')
+library(tensorflow)
+set.seed(20)
 claim_data <- read.csv(file = 'claimdata.csv')
 
 
@@ -19,4 +23,60 @@ data <- claim_data %>%
 log_cols<-c("CLAIM","HP","DED","GRT","DWT","VALUE")
 data[log_cols] <- log(data[log_cols])
 data["AGE"]<-log(data["AGE"]+1)
-data
+training_data <- data %>% 
+  slice(-c(100,300,500,700,900,1100,1300,1500,1700,1900,2100))
+  
+test_data <- data %>% 
+  slice(c(100,300,500,700,900,1100,1300,1500,1700,1900,2100))
+
+training_x <- data %>% 
+  select(-CLAIM) %>% 
+  slice(-c(100,300,500,700,900,1100,1300,1500,1700,1900,2100))
+training_y <- data %>% 
+  select(CLAIM) %>% 
+  slice(-c(100,300,500,700,900,1100,1300,1500,1700,1900,2100))
+testing_x <- test_data %>% 
+  select(-CLAIM)
+testing_y <- test_data %>% 
+  select(CLAIM)
+## NNET 
+neural_net <- nnet(CLAIM ~ .,data=training_data, size=32, linout=TRUE, skip=TRUE)
+neural_net_pred <- predict(neural_net, newdata=testing_x)
+
+
+## KERAS
+model <- keras_model_sequential() %>% 
+  layer_flatten(input_shape = length(training_x)) %>% #vector of 104 predictors
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dropout(0.2) %>%  #to avoid overfitting drops irrelevant obs.
+  layer_dense(units = 16, 
+              activation = "relu", 
+              kernel_regularizer = regularizer_l2(l = 0.001)) %>% #regularizer helps with overfitting issues
+  layer_dense(units = 32, 
+              activation = "relu", 
+              kernel_regularizer = regularizer_l2(l = 0.0001)) %>%
+  layer_dense(1) #output shape of one unit with linear activation
+
+summary(model)
+
+model %>% 
+  compile(
+    optimizer= "adam",
+    loss='mse',
+    metrics='mean_absolute_error')
+#training the model
+
+history <- model %>% 
+  keras::fit(
+    x = training_x %>% as.matrix(),
+    y = training_y %>% as.matrix(),
+    epochs=75,
+    validation_split=0.2)
+
+plot(history)
+model %>% 
+  evaluate(testing_x %>% as.matrix(),testing_y %>% as.matrix())
+
+keras_pred <- predict(model, testing_x %>% as.matrix())
+
+matrix(c(neural_net_pred,keras_pred),ncol = 2)
